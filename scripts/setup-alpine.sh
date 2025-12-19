@@ -14,10 +14,6 @@ rc-update add bootmisc boot
 rc-update add syslog default
 rc-update add crond default
 
-# enable networking
-apk add --no-cache dhcpcd
-rc-update add networking default
-
 # enable ssh server
 apk add --no-cache openssh
 rc-update add sshd default
@@ -86,6 +82,11 @@ iface lo inet loopback
 auto eth0
 iface eth0 inet dhcp
     hostname alpine
+
+auto eth1
+iface eth1 inet static
+    address 192.168.8.1
+    netmask 255.255.255.0
 "
 
 # Set timezone to UTC
@@ -101,7 +102,13 @@ SSHDOPTS="-c openssh"
 NTPOPTS="-c openntpd"
 EOL
 
-# 2. add nftables.conf
+# initial vars
+cat << 'EOL' > /etc/nftables.d/vars.nft
+define WAN = eth0
+define LAN = eth1
+EOL
+
+# add nftables.conf
 cat << 'EOL' > /etc/nftables.conf
 #!/usr/sbin/nft -f
 flush ruleset
@@ -117,12 +124,6 @@ table inet fw4 {
     # 自动加载目录下所有模块
     include "/etc/nftables.d/*.nft"
 }
-EOL
-
-# initial vars
-cat << 'EOL' > /etc/nftables.d/vars.nft
-define WAN = eth0
-define LAN = eth1
 EOL
 
 setup-alpine -q -f /answer_file
