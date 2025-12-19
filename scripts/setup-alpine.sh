@@ -23,6 +23,32 @@ apk add --no-cache openssh
 rc-update add sshd default
 sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
 
+# enable routing needed packages
+apk add --no-cache \
+    ppp ppp-pppoe ppp-openrc \
+    dnsmasq \
+    nftables \
+    wireguard-tools tailscale \
+    ca-certificates curl wget python3
+    
+# Create default folder path
+mkdir -p /etc/dnsmasq.d
+mkdir -p /etc/nftables.d
+mkdir -p /usr/local/bin
+
+# enable net forward
+cat << 'EOL' >> /etc/sysctl.conf
+net.ipv4.ip_forward = 1
+net.ipv6.conf.all.forwarding = 1
+net.netfilter.nf_conntrack_max = 65535
+
+# enable routing service
+rc-update add dnsmasq default
+rc-update add nftables default
+# PPPoE preloading
+echo "ppp_generic" >> /etc/modules
+echo "pppoe" >> /etc/modules
+
 # enable serial console
 echo "ttyFIQ0::respawn:/sbin/agetty -L 1500000 ttyFIQ0 vt100" >> /etc/inittab
 echo "ttyFIQ0" >> /etc/securetty
@@ -73,5 +99,30 @@ SSHDOPTS="-c openssh"
 # Use openntpd
 NTPOPTS="-c openntpd"
 EOL
+
+# 2. add nftables.conf
+cat << 'EOL' > /etc/nftables.conf
+#!/usr/sbin/nft -f
+flush ruleset
+
+# 引用变量
+include "/etc/nftables.d/vars.nft"
+
+table inet fw4 {
+    # 这里的集合供后续模块使用
+    set proxy_set { type ipv4_addr; flags interval; }
+    set black_list { type ipv4_addr; flags dynamic, timeout; timeout 24h; }
+
+    # 自动加载目录下所有模块
+    include "/etc/nftables.d/*.nft"
+}
+EOL
+
+# initial vars
+cat << 'EOL' > /etc/nftables.d/vars.nft
+define WAN = eth0
+define LAN = eth1
+EOL
+
 setup-alpine -q -f /answer_file
 rm -f /answer_file
