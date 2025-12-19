@@ -41,6 +41,7 @@ cat << 'EOL' >> /etc/sysctl.conf
 net.ipv4.ip_forward = 1
 net.ipv6.conf.all.forwarding = 1
 net.netfilter.nf_conntrack_max = 65535
+EOL
 
 # enable routing service
 rc-update add dnsmasq default
