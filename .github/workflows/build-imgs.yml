@@ -63,16 +63,33 @@ jobs:
       run: |
         sudo -u root bash -c '
           cd project
+          # 1. 基础环境准备
           cp /etc/resolv.conf rootfs/etc/resolv.conf
           mkdir -p rootfs/usr/local/bin
+          
+          # 2. 注入网络切换脚本 (确保路径 ../scripts/ 正确)
           cp ../scripts/network-setup.sh rootfs/usr/local/bin/
           chmod +x rootfs/usr/local/bin/network-setup.sh
+          
+          # 3. 注入安装主脚本
           cp ../scripts/setup-alpine.sh rootfs/
+          
+          # 4. 进入 chroot 执行安装
           source ../scripts/set_chroot_env.sh
           mount_chroot_env rootfs
-          LANG=C chroot rootfs /setup-alpine.sh
+          
+          # 执行 setup-alpine.sh
+          # 注意：在 setup-alpine.sh 内部应执行 apk add ppp 等操作
+          LANG=C chroot rootfs /bin/bash /setup-alpine.sh
+          
+          # 5. 额外加固：创建 ppp.wan 符号链接 (非常重要)
+          # 这确保了 network-setup.sh 里的 rc-service ppp.wan 能够识别
+          if [ -e rootfs/etc/init.d/ppp ]; then
+            ln -sf ppp rootfs/etc/init.d/ppp.wan
+          fi
+
+          # 6. 环境清理
           umount_chroot_env rootfs
-          # clean
           rm -f rootfs/setup-alpine.sh
           rm -f rootfs/etc/resolv.conf
         '
