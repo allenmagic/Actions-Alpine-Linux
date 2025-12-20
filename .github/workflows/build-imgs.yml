@@ -67,12 +67,19 @@ jobs:
           cp /etc/resolv.conf rootfs/etc/resolv.conf
           mkdir -p rootfs/usr/local/bin
           mkdir -p rootfs/etc/profile.d
+          mkdir -p rootfs/etc/dnsmasq.d
+          mkdir -p rootfs/etc/nftables.d
+          mkdir -p rootfs/usr/local/bin
           
           # 2. 注入自定义脚本 (确保路径 ../scripts/ 正确)
           cp ../scripts/network-setup.sh rootfs/usr/local/bin/
           chmod +x rootfs/usr/local/bin/network-setup.sh
           cp ../scripts/welcome.sh rootfs/etc/profile.d/
           chmod +x rootfs/etc/profile.d/welcome.sh
+          # 将 repo 的 config 目录下所有内容同步到 rootfs/etc/
+          if [ -d "../config" ]; then
+            cp -rv ../scripts/../config/* rootfs/etc/
+          fi
           
           # 3. 注入安装主脚本
           cp ../scripts/setup-alpine.sh rootfs/
