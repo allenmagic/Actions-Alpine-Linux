@@ -1,6 +1,6 @@
 on:
   watch:
-    types: started
+    types: 
 jobs:
   prepare_release:
     runs-on: ubuntu-22.04
