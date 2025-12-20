@@ -27,12 +27,7 @@ apk add --no-cache \
     wireguard-tools tailscale \
     ca-certificates curl wget python3
     
-# Create default folder path
-mkdir -p /etc/dnsmasq.d
-mkdir -p /etc/nftables.d
-mkdir -p /usr/local/bin
-
-# enable net forward
+# Enable net forward
 cat << 'EOL' >> /etc/sysctl.conf
 net.ipv4.ip_forward = 1
 net.ipv6.conf.all.forwarding = 1
@@ -106,24 +101,6 @@ EOL
 cat << 'EOL' > /etc/nftables.d/vars.nft
 define WAN = eth0
 define LAN = eth1
-EOL
-
-# add nftables.conf
-cat << 'EOL' > /etc/nftables.conf
-#!/usr/sbin/nft -f
-flush ruleset
-
-# 引用变量
-include "/etc/nftables.d/vars.nft"
-
-table inet fw4 {
-    # 这里的集合供后续模块使用
-    set proxy_set { type ipv4_addr; flags interval; }
-    set black_list { type ipv4_addr; flags dynamic, timeout; timeout 24h; }
-
-    # 自动加载目录下所有模块
-    include "/etc/nftables.d/*.nft"
-}
 EOL
 
 setup-alpine -q -f /answer_file
