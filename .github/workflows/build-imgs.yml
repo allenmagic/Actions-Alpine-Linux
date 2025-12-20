@@ -70,6 +70,9 @@ jobs:
           mkdir -p rootfs/etc/dnsmasq.d
           mkdir -p rootfs/etc/nftables.d
           mkdir -p rootfs/usr/local/bin
+
+          # 核心安全操作：在宿主机层面直接为 rootfs 注入 bash
+          LANG=C chroot rootfs /bin/sh -c "apk update && apk add --no-cache bash"
           
           # 2. 注入自定义脚本 (确保路径 ../scripts/ 正确)
           cp ../scripts/network-setup.sh rootfs/usr/local/bin/
