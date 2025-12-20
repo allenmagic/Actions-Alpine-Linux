@@ -126,18 +126,5 @@ table inet fw4 {
 }
 EOL
 
-# install network-setup shell script
-NETWORK_SETUP_SRC="./network-setup.sh"
-NETWORK_SETUP_DEST="${DESTDIR}/usr/local/bin/network-setup.sh"
-
-if [ -f "$NETWORK_SETUP_SRC" ]; then
-    echo "copy network-setup.sh to /usr/local/bin..."
-    mkdir -p "${DESTDIR}/usr/local/bin"
-    cp "$NETWORK_SETUP_SRC" "$NETWORK_SETUP_DEST"
-    chmod +x "$NETWORK_SETUP_DEST"
-else
-    echo "warning: can not find network-setup.sh，please check the path！"
-fi
-
 setup-alpine -q -f /answer_file
 rm -f /answer_file
