@@ -7,7 +7,7 @@ jobs:
     if: github.event.repository.owner.id == github.event.sender.id
     steps:
     - name: Get release tag
-      id: release_tag
+      id: release tag
       run: |
         release_tag="Alpine-$(date +%Y-%m-%d)"
         echo "##[set-output name=release_tag;]$release_tag"
