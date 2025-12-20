@@ -61,8 +61,8 @@ EOL
 
 # Set up mirror
 cat << 'EOL' > /etc/apk/repositories
-http://mirrors.aliyun.com/alpine/v3.22/main
-http://mirrors.aliyun.com/alpine/v3.22/community
+http://mirrors.aliyun.com/alpine/v3.23/main
+http://mirrors.aliyun.com/alpine/v3.23/community
 EOL
 
 # run setup-alpine quick mode
