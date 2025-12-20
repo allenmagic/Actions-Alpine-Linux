@@ -66,10 +66,13 @@ jobs:
           # 1. 基础环境准备
           cp /etc/resolv.conf rootfs/etc/resolv.conf
           mkdir -p rootfs/usr/local/bin
+          mkdir -p rootfs/etc/profile.d
           
-          # 2. 注入网络切换脚本 (确保路径 ../scripts/ 正确)
+          # 2. 注入自定义脚本 (确保路径 ../scripts/ 正确)
           cp ../scripts/network-setup.sh rootfs/usr/local/bin/
           chmod +x rootfs/usr/local/bin/network-setup.sh
+          cp ../scripts/welcome.sh rootfs/etc/profile.d/
+          chmod +x rootfs/etc/profile.d/welcome.sh
           
           # 3. 注入安装主脚本
           cp ../scripts/setup-alpine.sh rootfs/
