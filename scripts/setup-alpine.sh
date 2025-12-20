@@ -81,12 +81,6 @@ iface eth1 inet static
 "
 EOL
 
-# initial vars
-cat << 'EOL' > /etc/nftables.d/vars.nft
-define WAN = eth0
-define LAN = eth1
-EOL
-
 # run setup-alpine quick mode
 cat << 'EOL' > /answer_file
 # Use US layout with US variant
