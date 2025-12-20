@@ -64,6 +64,9 @@ jobs:
         sudo -u root bash -c '
           cd project
           cp /etc/resolv.conf rootfs/etc/resolv.conf
+          mkdir -p rootfs/usr/local/bin
+          cp ../scripts/network-setup.sh rootfs/usr/local/bin/
+          chmod +x rootfs/usr/local/bin/network-setup.sh
           cp ../scripts/setup-alpine.sh rootfs/
           source ../scripts/set_chroot_env.sh
           mount_chroot_env rootfs
