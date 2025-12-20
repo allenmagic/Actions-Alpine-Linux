@@ -65,12 +65,8 @@ http://mirrors.aliyun.com/alpine/v3.22/main
 http://mirrors.aliyun.com/alpine/v3.22/community
 EOL
 
-# run setup-alpine quick mode
-cat << 'EOL' > /answer_file
-# Use US layout with US variant
-KEYMAPOPTS="us us"
-
-# Contents of /etc/network/interfaces
+# Set up default interfaces
+cat << 'EOL' > /etc/network/interfaces
 INTERFACESOPTS="auto lo
 iface lo inet loopback
 
@@ -83,6 +79,18 @@ iface eth1 inet static
     address 192.168.8.1
     netmask 255.255.255.0
 "
+EOL
+
+# initial vars
+cat << 'EOL' > /etc/nftables.d/vars.nft
+define WAN = eth0
+define LAN = eth1
+EOL
+
+# run setup-alpine quick mode
+cat << 'EOL' > /answer_file
+# Use US layout with US variant
+KEYMAPOPTS="us us"
 
 # Set timezone to UTC
 TIMEZONEOPTS="-z UTC"
@@ -95,12 +103,6 @@ SSHDOPTS="-c openssh"
 
 # Use openntpd
 NTPOPTS="-c openntpd"
-EOL
-
-# initial vars
-cat << 'EOL' > /etc/nftables.d/vars.nft
-define WAN = eth0
-define LAN = eth1
 EOL
 
 setup-alpine -q -f /answer_file
