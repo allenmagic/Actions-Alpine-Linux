@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Copyright (c) 2025 allenmagic
+# Author: allenmagic
+# License: MIT
+
 # 定义颜色
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
