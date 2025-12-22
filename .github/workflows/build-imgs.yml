@@ -65,21 +65,20 @@ jobs:
           cd project
           # 1. 基础环境准备
           cp /etc/resolv.conf rootfs/etc/resolv.conf
-          mkdir -p rootfs/usr/local/bin
-          mkdir -p rootfs/etc/profile.d
           mkdir -p rootfs/etc/dnsmasq.d
           mkdir -p rootfs/etc/nftables.d
-          mkdir -p rootfs/usr/local/bin
 
           # 核心安全操作：在宿主机层面直接为 rootfs 注入 bash
           LANG=C chroot rootfs /bin/sh -c "apk update && apk add --no-cache bash"
           
           # 2. 注入自定义脚本 (确保路径 ../scripts/ 正确)
-          cp ../scripts/network-setup.sh rootfs/usr/local/bin/
-          chmod +x rootfs/usr/local/bin/network-setup.sh
+          cp -rv ../scripts/bin/* rootfs/usr/local/bin/
+          chmod +x rootfs/usr/local/bin/*.sh 2>/dev/null || true
+          # 注入welcome脚本
           cp ../scripts/welcome.sh rootfs/etc/profile.d/
           chmod +x rootfs/etc/profile.d/welcome.sh
-          # 将 repo 的 config 目录下所有内容同步到 rootfs/etc/
+        
+          # 2.1 将 repo 的 config 目录下所有内容同步到 rootfs/etc/
           if [ -d "../config" ]; then
             cp -rv ../scripts/../config/* rootfs/etc/
           fi
@@ -92,7 +91,6 @@ jobs:
           mount_chroot_env rootfs
           
           # 执行 setup-alpine.sh
-          # 注意：在 setup-alpine.sh 内部应执行 apk add ppp 等操作
           LANG=C chroot rootfs /bin/bash /setup-alpine.sh
           
           # 5. 额外加固：创建 ppp.wan 符号链接 (非常重要)
@@ -100,7 +98,7 @@ jobs:
           if [ -e rootfs/etc/init.d/ppp ]; then
             ln -sf ppp rootfs/etc/init.d/ppp.wan
           fi
-
+          
           # 6. 环境清理
           umount_chroot_env rootfs
           rm -f rootfs/setup-alpine.sh
