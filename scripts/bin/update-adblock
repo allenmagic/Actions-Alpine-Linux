@@ -1,0 +1,62 @@
+#!/bin/bash
+
+# --- 配置区 ---
+AD_DIR="/etc/dnsmasq.d"
+AD_CONF="${AD_DIR}/90-adblock.conf"
+AD_SOURCE="https://anti-ad.net/dnsmasq.conf"
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+# --- 1. 环境准备 ---
+if [ ! -d "$AD_DIR" ]; then
+    echo "目录 $AD_DIR 不存在，正在创建..."
+    mkdir -p "$AD_DIR"
+fi
+
+echo ">>> 正在下载最新广告屏蔽列表 (跨架构支持)..."
+
+# --- 2. 下载与校验 ---
+tmp_file=$(mktemp)
+# 使用 wget 并增加超时处理
+if wget --no-check-certificate -qO "$tmp_file" "$AD_SOURCE"; then
+    count=$(grep -c "address=/" "$tmp_file")
+
+    if [ "$count" -lt 1000 ]; then
+        echo -e "${RED}[错误] 规则数量异常 ($count)，可能是下载被拦截。${NC}"
+        rm -f "$tmp_file"
+        exit 1
+    fi
+
+    # 替换旧规则
+    mv "$tmp_file" "$AD_CONF"
+    chmod 644 "$AD_CONF"
+    echo -e "${GREEN}[成功] 已加载 $count 条广告规则。${NC}"
+else
+    echo -e "${RED}[失败] 无法连接到服务器。${NC}"
+    rm -f "$tmp_file"
+    exit 1
+fi
+
+# --- 3. 重新加载配置 (优雅重启) ---
+if pgrep dnsmasq > /dev/null; then
+    # 发送 SIGHUP 信号让 dnsmasq 重新读取配置文件，比 restart 更平滑
+    killall -SIGHUP dnsmasq
+    echo -e "${GREEN}[通知] dnsmasq 已重新加载配置。${NC}"
+else
+    # 如果服务没启动，则尝试启动
+    rc-service dnsmasq start > /dev/null 2>&1
+fi
+
+# --- 4. 自动持久化 (判断 Alpine 运行模式) ---
+# 方法：通过查看是否存在 lbu 工具且系统是否为只读挂载/内存模式
+if command -v lbu >/dev/null 2>&1; then
+    # 进一步检查是否为 diskless (通过检查是否挂载了 tmpfs 根目录或有 apkovl)
+    if grep -q "alpine_dev" /proc/cmdline || [ -f /media/*/config-*.apkovl.tar.gz ]; then
+        echo ">>> 检测到 Diskless 模式，正在执行 lbu commit..."
+        # -d 自动处理，-i 忽略不需要的缓存 (取决于具体版本)
+        lbu commit -d
+        echo -e "${GREEN}[保存] 配置已成功写入 SD 卡/硬盘。${NC}"
+    fi
+fi

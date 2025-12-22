@@ -22,21 +22,22 @@ sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd
 # enable routing needed packages
 apk add --no-cache \
     ppp ppp-pppoe ppp-openrc \
-    dnsmasq \
-    nftables \
+    dnsmasq-dnssec-nftset \
+    nftables newt \
     wireguard-tools tailscale \
     ca-certificates curl wget python3
-    
-# Enable net forward
-cat << 'EOL' >> /etc/sysctl.conf
-net.ipv4.ip_forward = 1
-net.ipv6.conf.all.forwarding = 1
-net.netfilter.nf_conntrack_max = 65535
-EOL
+
+# 确保必要的信任锚点文件存在 (DNSSEC 依赖)
+if [ ! -f /usr/share/dnsmasq/trust-anchors.conf ]; then
+    apk add --no-cache dnsmasq-utils
+fi
 
 # enable routing service
 rc-update add dnsmasq default
 rc-update add nftables default
+
+# 确保 sysctl 配置在启动时被应用
+rc-update add sysctl default
 # PPPoE preloading
 echo "ppp_generic" >> /etc/modules
 echo "pppoe" >> /etc/modules
@@ -46,14 +47,14 @@ echo "ttyFIQ0::respawn:/sbin/agetty -L 1500000 ttyFIQ0 vt100" >> /etc/inittab
 echo "ttyFIQ0" >> /etc/securetty
 
 # root password
-echo "root:fa" | chpasswd
+echo "root:joyo00088708" | chpasswd
 
 echo "$(date +%Y%m%d)" > /etc/rom-version
 [ -e /lib/firmware ] || mkdir -p /lib/firmware
 [ -e /lib/modules ] || mkdir -p /lib/modules
 
 # Set hostname
-echo "alpine" > /etc/hostname
+echo "alpine-router" > /etc/hostname
 cat << 'EOL' > /etc/hosts
 127.0.0.1       alpine.my.domain alpine localhost.localdomain localhost
 ::1             localhost localhost.localdomain
@@ -64,6 +65,7 @@ cat << 'EOL' > /etc/apk/repositories
 http://mirrors.aliyun.com/alpine/v3.23/main
 http://mirrors.aliyun.com/alpine/v3.23/community
 EOL
+
 
 # run setup-alpine quick mode
 cat << 'EOL' > /answer_file
@@ -76,7 +78,7 @@ iface lo inet loopback
 
 auto eth0
 iface eth0 inet dhcp
-    hostname alpine
+    hostname alpine-router
 
 auto eth1
 iface eth1 inet static

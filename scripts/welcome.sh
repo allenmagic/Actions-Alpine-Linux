@@ -1,61 +1,58 @@
 #!/bin/bash
 
-# Copyright (c) 2025 allenmagic
-# Author: allenmagic
-# License: MIT
-
-# 定义颜色
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-RED='\033[0;31m'
-NC='\033[0m' # 重置颜色
+# 定义颜色代码
+GREEN=$(printf '\033[0;32m')
+YELLOW=$(printf '\033[1;33m')
+CYAN=$(printf '\033[0;36m')
+RED=$(printf '\033[0;31m')
+NC=$(printf '\033[0m')
 
 # --- 1. 获取系统基本信息 ---
-UPTIME=$(uptime | awk -F'up ' '{print $2}' | awk -F',' '{print $1}')
+UPTIME=$(uptime | awk -F'up ' '{print $2}' | awk -F',' '{print $1}' | sed 's/^ //')
 LOAD=$(cut -d' ' -f1-3 /proc/loadavg)
-MEM_FREE=$(free -m | awk '/Mem:/ { print $4 }')
-MEM_TOTAL=$(free -m | awk '/Mem:/ { print $2 }')
+MEM_INFO=$(free -m | awk '/Mem:/ { printf "%sMB / %sMB (%.1f%%)", $3, $2, $3/$2*100 }')
 DISK_USAGE=$(df -h / | awk 'NR==2 {print $5}')
+TEMP=$(cut -c1-2 /sys/class/thermal/thermal_zone0/temp 2>/dev/null || echo "??")
 
-# --- 2. 检查网络模式 ---
-# 通过判断 vars.nft 内容或 ppp0 接口来识别模式
-if [ -f /etc/nftables.d/vars.nft ]; then
-    if grep -q "ppp0" /etc/nftables.d/vars.nft; then
-        NET_MODE="PPPoE 拨号模式"
-    else
-        NET_MODE="光猫 DHCP 模式"
-    fi
+# --- 2. 统计业务数据 ---
+AD_COUNT=$(grep -c "address=/" /etc/dnsmasq.d/90-adblock.conf 2>/dev/null || echo "0")
+PROXY_COUNT=$(grep -c "nftset=" /etc/dnsmasq.d/60-proxy-list.conf 2>/dev/null || echo "0")
+
+VARS_FILE="/etc/nftables.d/vars.nft"
+if [ -f "$VARS_FILE" ]; then
+    grep -q "ppp0" "$VARS_FILE" && NET_MODE="PPPoE 拨号" || NET_MODE="光猫 DHCP"
 else
-    NET_MODE="${RED}尚未初始化${NC}"
+    NET_MODE="${RED}未初始化${NC}"
 fi
 
 # --- 3. 打印欢迎界面 ---
-echo -e "${CYAN}======================================================${NC}"
-echo -e "   欢迎使用 ${GREEN}Alpine Linux${NC} (R3S / PVE 软路由定制版)"
-echo -e "   系统时间: $(date "+%Y-%m-%d %H:%M:%S")"
-echo -e "   运行时间: $UPTIME"
-echo -e "   系统负载: $LOAD"
-echo -e "   内存剩余: ${MEM_FREE}MB / ${MEM_TOTAL}MB"
-echo -e "   根分区占用: $DISK_USAGE"
-echo -e "${CYAN}======================================================${NC}"
+echo "${CYAN}======================================================${NC}"
+echo "   欢迎使用 ${GREEN}Alpine Linux${NC} (R3S 极简软路由版)"
+echo "   系统时间: $(date "+%Y-%m-%d %H:%M:%S") | 温度: ${TEMP}°C"
+echo "   运行时间: $UPTIME | 负载: $LOAD"
+echo "   内存占用: $MEM_INFO"
+echo "   根分区占用: $DISK_USAGE"
+echo "${CYAN}------------------------------------------------------${NC}"
 
-# --- 4. 核心功能说明 ---
-echo -e "${YELLOW}[当前网络状态]${NC}: $NET_MODE"
-echo -e ""
-echo -e "${GREEN}[核心指令说明]:${NC}"
-echo -e "  1. ${YELLOW}network-setup.sh${NC}    - 快速切换上网模式 (拨号/DHCP)"
-echo -e "  2. ${YELLOW}lbu commit -d${NC}       - ${RED}重要！${NC}保存当前配置到 SD 卡/磁盘"
-echo -e "  3. ${YELLOW}rc-service x restart${NC} - 重启服务 (x = nftables, dnsmasq, ppp.wan)"
-echo -e ""
-echo -e "${GREEN}[GitOps 管理]:${NC}"
-echo -e "  - 配置文件目录: /etc/nftables.d/, /etc/dnsmasq.d/"
-echo -e "  - 修改配置后请运行 ${YELLOW}lbu commit${NC} 以防重启丢失"
-echo -e "${CYAN}======================================================${NC}"
+# --- 4. 业务状态看板 (使用 %b 处理颜色变量) ---
+printf "   %b%-25s%b %b%-25s%b\n" "${YELLOW}[网络模式]: " "$NET_MODE" "${NC}" "${YELLOW}[在线设备]: " "$(grep -c "eth1" /proc/net/arp 2>/dev/null)" "${NC}"
+printf "   %b%-25s%b %b%-25s%b\n" "${YELLOW}[广告拦截]: " "$AD_COUNT 条" "${NC}" "${YELLOW}[代理域名]: " "$PROXY_COUNT 个" "${NC}"
+echo "${CYAN}------------------------------------------------------${NC}"
 
-# --- 5. 初次登录特别引导 ---
-if [ ! -f /etc/nftables.d/vars.nft ]; then
-    echo -e "${RED}>>> 检测到系统尚未完成网络初始化！${NC}"
-    echo -e "${RED}>>> 请立即输入 ${GREEN}network-setup.sh${RED} 来配置您的网络。${NC}"
-    echo -e "${CYAN}======================================================${NC}"
+# --- 5. 核心工具说明 ---
+echo "${GREEN}[核心管理指令]:${NC}"
+echo "  • ${CYAN}network-setup${NC}  - 切换上网模式 (拨号/DHCP)"
+echo "  • ${CYAN}update-adblock${NC} - 更新广告黑名单 (每周一自动运行)"
+echo "  • ${CYAN}proxy add/list${NC} - 管理强制走代理的域名"
+echo "  • ${CYAN}set-dns${NC}       - 快速修改上游解析服务器"
+echo "  • ${CYAN}client-mgr${NC}    - 扫描内网设备并绑定固定 IP"
+echo ""
+echo "  ${RED}重要：${NC}修改配置后请运行 ${YELLOW}lbu commit -d${NC} 永久保存到 SD 卡"
+echo "${CYAN}======================================================${NC}"
+
+# --- 6. 初次登录特别引导 ---
+if [ ! -f "$VARS_FILE" ]; then
+    echo "${RED}>>> 检测到系统尚未完成网络初始化！${NC}"
+    echo "${RED}>>> 请立即输入 ${GREEN}network-setup${RED} 开始配置。${NC}"
+    echo "${CYAN}======================================================${NC}"
 fi

@@ -21,10 +21,10 @@ echo "1) 光猫拨号模式 (二级路由 - WAN口自动获取IP)"
 echo "2) 桥接拨号模式 (主路由 - Alpine 进行 PPPoE 拨号)"
 read -p "请选择上网模式 [1-2]: " mode
 
-# 函数：更新 nftables 变量
+# 函数：更新 nftables.d 变量
 update_nft_vars() {
-    mkdir -p /etc/nftables.d
-    cat <<EOF > /etc/nftables.d/vars.nft
+    mkdir -p /etc/nftables.d.d
+    cat <<EOF > /etc/nftables.d.d/vars.nft
 define WAN = $1
 define LAN = $LAN_IF
 EOF
