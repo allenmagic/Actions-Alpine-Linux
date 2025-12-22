@@ -1,15 +1,15 @@
 #!/bin/sh
+# 注意：构建环境建议保留 C 编码以防路径解析出错，但镜像系统内部我们会设为中文
 export LANG="en_US.UTF-8"
 export LANGUAGE=en_US:en
-export LC_NUMERIC="C"
-export LC_CTYPE="C"
-export LC_MESSAGES="C"
 export LC_ALL="C"
 
 apk update
-apk add --no-cache openrc bash
-apk add --no-cache alpine-base
-apk add --no-cache util-linux
+apk add --no-cache openrc bash alpine-base util-linux
+
+# --- 中文支持包 ---
+apk add --no-cache musl-locales musl-locales-lang tzdata
+
 rc-update add bootmisc boot
 rc-update add syslog default
 rc-update add crond default
@@ -35,9 +35,8 @@ fi
 # enable routing service
 rc-update add dnsmasq default
 rc-update add nftables default
-
-# 确保 sysctl 配置在启动时被应用
 rc-update add sysctl default
+
 # PPPoE preloading
 echo "ppp_generic" >> /etc/modules
 echo "pppoe" >> /etc/modules
@@ -56,23 +55,30 @@ echo "$(date +%Y%m%d)" > /etc/rom-version
 # Set hostname
 echo "alpine-router" > /etc/hostname
 cat << 'EOL' > /etc/hosts
-127.0.0.1       alpine.my.domain alpine localhost.localdomain localhost
+127.0.0.1       alpine-router alpine localhost.localdomain localhost
 ::1             localhost localhost.localdomain
 EOL
 
-# Set up mirror
+# Set up mirror (固定使用阿里云，避免 setup-alpine 随机选择)
 cat << 'EOL' > /etc/apk/repositories
 http://mirrors.aliyun.com/alpine/v3.23/main
 http://mirrors.aliyun.com/alpine/v3.23/community
 EOL
 
+# --- 设置全局中文环境变量 ---
+cat << 'EOF' > /etc/profile.d/locale.sh
+export LANG="zh_CN.UTF-8"
+export LANGUAGE="zh_CN:zh"
+export LC_ALL="zh_CN.UTF-8"
+EOF
+chmod +x /etc/profile.d/locale.sh
 
 # run setup-alpine quick mode
 cat << 'EOL' > /answer_file
-# Use US layout with US variant
+# Use US layout
 KEYMAPOPTS="us us"
 
-# Contents of /etc/network/interfaces
+# Network config
 INTERFACESOPTS="auto lo
 iface lo inet loopback
 
@@ -86,18 +92,17 @@ iface eth1 inet static
     netmask 255.255.255.0
 "
 
-# Set timezone to UTC
-TIMEZONEOPTS="-z UTC"
+# 修改点：设置上海时区
+TIMEZONEOPTS="-z Asia/Shanghai"
 
-# Add a random mirror
-APKREPOSOPTS="-r"
+# 修改点：既然前面手动写了 repositories，这里设为 none 避免覆盖
+APKREPOSOPTS="none"
 
-# Install Openssh
+# SSH 和 NTP
 SSHDOPTS="-c openssh"
-
-# Use openntpd
 NTPOPTS="-c openntpd"
 EOL
 
+# 执行安装配置
 setup-alpine -q -f /answer_file
 rm -f /answer_file
