@@ -100,7 +100,7 @@ jobs:
           fi
 
           # 检测自定义效果
-          cat /etc/nftables.d/00-vars.nft
+          cat /rootfs/etc/nftables.d/00-vars.nft
           
           # 6. 环境清理
           umount_chroot_env rootfs
