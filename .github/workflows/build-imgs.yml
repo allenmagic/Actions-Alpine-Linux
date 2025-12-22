@@ -98,6 +98,9 @@ jobs:
           if [ -e rootfs/etc/init.d/ppp ]; then
             ln -sf ppp rootfs/etc/init.d/ppp.wan
           fi
+
+          # 检测自定义效果
+          cat /etc/nftables.d/00-vars.nft
           
           # 6. 环境清理
           umount_chroot_env rootfs
