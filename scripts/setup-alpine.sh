@@ -96,7 +96,7 @@ iface eth1 inet static
 TIMEZONEOPTS="-z Asia/Shanghai"
 
 # 修改点：既然前面手动写了 repositories，这里设为 none 避免覆盖
-APKREPOSOPTS="none"
+# APKREPOSOPTS="none"
 
 # SSH 和 NTP
 SSHDOPTS="-c openssh"
