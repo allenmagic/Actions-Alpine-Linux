@@ -37,6 +37,7 @@ fi
 rc-update add dnsmasq default
 rc-update add nftables default
 rc-update add sysctl default
+rc-update add sing-box default
 
 # PPPoE preloading
 echo "ppp_generic" >> /etc/modules

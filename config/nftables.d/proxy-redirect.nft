@@ -1,23 +1,57 @@
 table inet singbox {
+
     set proxy_set {
         type ipv4_addr
         flags interval
     }
 
     chain prerouting {
-        type filter hook prerouting priority mangle; policy accept;
+        type filter hook prerouting priority mangle;
+        policy accept;
 
-        # 排除回环和私有网段
-        ip daddr { 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } return
-        # 排除 Win2016 自身的包，防止死循环
-        ip saddr 192.168.8.180 accept
+        ################################################
+        # 0️⃣ 隧道控制（核心新增）
+        ################################################
+        # WG / Tailscale 解封装后的内层流量：
+        #  - 不允许再次被 TPROXY
+        #  - 防止隧道流量进入 Win2016 代理形成环
+        iifname { "wg0", "tailscale0" } return
 
-        # 核心：拦截 proxy_set，包含 80, 443 (HTTPS/QUIC) 和 22 (SSH)
-        # 并打上 fwmark 1 配合策略路由
-        ip daddr @proxy_set tcp dport { 22, 80, 443, 8080 } tproxy to :1080 meta mark set 1 accept
-        ip daddr @proxy_set udp dport { 443 } tproxy to :1080 meta mark set 1 accept
+        ################################################
+        # 1️⃣ 回环 & 本机身份流量
+        ################################################
+        iifname "lo" return
 
-        # DNS 拦截
-        udp dport 53 ip daddr { 1.1.1.1, 8.8.8.8 } tproxy to :1080 meta mark set 1 accept
+        ip saddr {
+            127.0.0.0/8,
+            10.10.10.2,       # R3S 的 WireGuard 地址
+            192.168.8.180     # Win2016 本机
+        } return
+
+        ################################################
+        # 2️⃣ 私有地址不做代理
+        ################################################
+        ip daddr {
+            10.0.0.0/8,
+            172.16.0.0/12,
+            192.168.0.0/16
+        } return
+
+        ################################################
+        # 3️⃣ 代理目标（唯一进入 sing-box 的路径）
+        ################################################
+        ip daddr @proxy_set tcp dport { 22, 80, 443, 8080 } tproxy to :1080 meta mark set 0x1 accept
+
+        ip daddr @proxy_set udp dport 443 tproxy to :1080 meta mark set 0x1 accept
+
+        ################################################
+        # 4️⃣ DNS（可选拦截，仍然受 WG/TS 控制约束）
+        ################################################
+        udp dport 53 meta mark set 0x1 tproxy to :1080 accept
+
+        ################################################
+        # 5️⃣ 明确结束
+        ################################################
+        return
     }
 }
