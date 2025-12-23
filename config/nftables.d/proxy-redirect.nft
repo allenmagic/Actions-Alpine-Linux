@@ -1,0 +1,23 @@
+table inet singbox {
+    set proxy_set {
+        type ipv4_addr
+        flags interval
+    }
+
+    chain prerouting {
+        type filter hook prerouting priority mangle; policy accept;
+
+        # 排除回环和私有网段
+        ip daddr { 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } return
+        # 排除 Win2016 自身的包，防止死循环
+        ip saddr 192.168.8.180 accept
+
+        # 核心：拦截 proxy_set，包含 80, 443 (HTTPS/QUIC) 和 22 (SSH)
+        # 并打上 fwmark 1 配合策略路由
+        ip daddr @proxy_set tcp dport { 22, 80, 443, 8080 } tproxy to :1080 meta mark set 1 accept
+        ip daddr @proxy_set udp dport { 443 } tproxy to :1080 meta mark set 1 accept
+
+        # DNS 拦截
+        udp dport 53 ip daddr { 1.1.1.1, 8.8.8.8 } tproxy to :1080 meta mark set 1 accept
+    }
+}

@@ -24,7 +24,7 @@ sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd
 apk add --no-cache \
     ppp ppp-pppoe ppp-openrc \
     dnsmasq-dnssec-nftset \
-    nftables newt \
+    nftables newt sing-box \
     wireguard-tools tailscale \
     ca-certificates curl wget python3
 

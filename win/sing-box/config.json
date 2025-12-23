@@ -1,0 +1,24 @@
+{
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "type": "socks",
+      "tag": "socks-in",
+      "listen": "0.0.0.0",
+      "listen_port": 1080,
+      "sniff": true,
+      "sniff_override_destination": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct-out",
+      "domain_strategy": "prefer_ipv4",
+      "network": "tcp,udp"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true
+  }
+}

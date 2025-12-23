@@ -1,2 +1,0 @@
-define WAN = eth0
-define LAN = eth1

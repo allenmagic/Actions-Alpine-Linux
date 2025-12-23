@@ -1,0 +1,13 @@
+# 该配置文件为主配置文件.
+# 更多案例可参考/usr/share/nftables.
+# 更多nftables功能和用法参考https://wiki.nftables.org
+# 请使用 `nft -f <file>` 加载nft配置文件
+
+# 清除历史状态
+flush ruleset
+
+# 加载预设变量
+include "./nftables.d/inet-vars.nft"
+
+# 加载filter设置
+include "./nftables.d/inet-filter.nft"

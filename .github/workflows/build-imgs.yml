@@ -73,7 +73,7 @@ jobs:
           
           # 2. 注入自定义脚本 (确保路径 ../scripts/ 正确)
           cp -rv ../scripts/bin/* rootfs/usr/local/bin/
-          chmod +x rootfs/usr/local/bin/*.sh 2>/dev/null || true
+          chmod +x rootfs/usr/local/bin/*.* 2>/dev/null || true
           # 注入welcome脚本
           cp ../scripts/welcome.sh rootfs/etc/profile.d/
           chmod +x rootfs/etc/profile.d/welcome.sh
@@ -82,6 +82,8 @@ jobs:
           if [ -d "../config" ]; then
             cp -rv ../scripts/../config/* rootfs/etc/
           fi
+          # 将local.d目录下的start文件授权为可执行文件
+          chmod +x rootfs/etc/local.d/*.start 2>/dev/null || true
           
           # 3. 注入安装主脚本
           cp ../scripts/setup-alpine.sh rootfs/

@@ -1,0 +1,172 @@
+table inet filter {
+
+    #
+    # ========= 接口定义：lan和vpn分开定义 =========
+    #
+
+    set lan_interfaces {
+        type ifname
+        elements = { $LAN }
+    }
+
+    set vpn_interfaces {
+        type ifname
+        elements = { $WG, $TS }
+    }
+
+    #
+    # ========= 动态黑名单 (WAN only) =========
+    #
+
+    set flood_blacklist {
+        type inet_addr
+        flags dynamic, timeout
+        timeout 1h
+    }
+
+    #
+    # ========= INPUT链 (控制面板段) =========
+    #
+
+    chain input {
+        type filter hook input priority filter; policy drop;
+
+        # lo accept default
+        iif lo accept
+
+        #
+        # --- Connection Tracking Baseline ---
+        #
+        ct state established,related accept
+        ct state invalid drop
+
+        #
+        # --- WAN Flood Blacklist ---
+        #
+        iifname $WAN ip  saddr @flood_blacklist drop
+        iifname $WAN ip6 saddr @flood_blacklist drop
+
+        #
+        # --- WAN SYN Flood Protection (Router Control Plane Only) ---
+        #
+        iifname $WAN ct state new tcp flags syn meter wan_syn_flood { ip saddr limit rate 20/second burst 50 packets } accept
+        iifname $WAN ct state new tcp flags syn add @flood_blacklist { ip saddr } log prefix "WAN_SYN_FLOOD: " limit rate 5/minute drop
+        iifname $WAN ct state new tcp flags syn add @flood_blacklist { ip6 saddr } log prefix "WAN_SYN_FLOOD: " limit rate 5/minute drop
+
+        #
+        # ------------------------------------------------------------
+        # ICMP 控制面板 (IPv4 / IPv6) — symmetric, minimal, safe
+        # ------------------------------------------------------------
+        #
+
+        # ---- IPv4 ICMP: required control & diagnostics (rate-limited)
+
+        iifname $WAN ip protocol icmp icmp type {
+            destination-unreachable,   # incl. PMTU (frag-needed)
+            time-exceeded,             # traceroute / TTL expired
+            parameter-problem,
+            echo-request,
+            echo-reply
+        } limit rate 5/second burst 10 packets accept
+
+
+        # ---- IPv6 ICMP: required control & diagnostics
+        iifname $WAN meta l4proto ipv6-icmp icmpv6 type {
+            destination-unreachable,
+            packet-too-big,
+            time-exceeded,
+            parameter-problem,
+            echo-request,
+            echo-reply
+        } limit rate 5/second burst 10 packets accept
+
+        # ---- IPv6 Neighbor Discovery (must NOT be rate-limited)
+        iifname $WAN meta l4proto ipv6-icmp icmpv6 type {
+            nd-router-solicit,
+            nd-router-advert,
+            nd-neighbor-solicit,
+            nd-neighbor-advert
+        } accept
+
+        # SSH 管理（限速，防止失陷主机消耗控制面资源）
+        iifname @lan_interfaces tcp dport 22 ct state new limit rate 30/minute burst 20 accept
+
+        # DHCP（如路由器承担 DHCP Server）
+        iifname @lan_interfaces udp dport { 67, 68 } accept
+
+        # DNS（如路由器承担 DNS 转发 / 缓存）
+        iifname @lan_interfaces udp dport 53 accept
+        iifname @lan_interfaces tcp dport 53 accept
+
+        # ICMP（LAN 基础可达性与排错）
+        iifname @lan_interfaces ip protocol icmp icmp type {
+            destination-unreachable,
+            time-exceeded,
+            parameter-problem,
+            echo-request,
+            echo-reply
+        } accept
+
+
+        # ==================================================
+        # --- VPN -> Router (wireguard, tailscale) ---
+        # ==================================================
+
+        # VPN 仅允许 SSH 管理
+        iifname @vpn_interfaces tcp dport 22 ct state new limit rate 60/minute burst 30 accept
+        log prefix "INPUT_DROP: " limit rate 10/minute drop
+    }
+
+    #
+    # ========= FORWARD CHAIN (Data Plane) =========
+    #
+
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+
+        #
+        # --- Baseline ---
+        #
+        ct state established,related accept
+        ct state invalid drop
+
+        #
+        # --- MSS Clamping (PPPoE / Tunnel Safe) ---
+        #
+        tcp flags syn tcp option maxseg size set rt mtu
+
+        #
+        # ==================================================
+        # --- LAN Routing ---
+        # ==================================================
+        #
+
+        # LAN -> Anywhere (WAN / VPN)
+        iifname @lan_interfaces accept
+
+        #
+        # ==================================================
+        # --- VPN Routing Policy --- 路由wireguard和tailsacle
+        # ==================================================
+        #
+
+        # VPN -> LAN (允许主动访问 LAN 资源)
+        iifname @vpn_interfaces oifname @lan_interfaces accept
+
+        # LAN -> VPN (允许主动访问 VPN 资源)
+        iifname @lan_interfaces oifname @vpn_interfaces accept
+
+        log prefix "FORWARD_DROP: " limit rate 10/minute drop
+    }
+
+    #
+    # ========= OUTPUT CHAIN =========
+    #
+
+    chain output {
+        type filter hook output priority filter; policy accept;
+        # --- 默认放行 ---
+        #
+        log prefix "OUTPUT_NEW: " ct state new limit rate 5/minute accept
+    }
+}

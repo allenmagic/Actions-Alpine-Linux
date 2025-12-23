@@ -1,0 +1,6 @@
+define WAN = eth0
+define LAN = eth1
+define WG = wg0
+define TS = tailscale0
+define LAN_NET = 192.168.8.0/24
+# define WAN = ppp0
