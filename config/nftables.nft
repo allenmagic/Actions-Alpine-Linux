@@ -11,3 +11,6 @@ include "./nftables.d/inet-vars.nft"
 
 # 加载filter设置
 include "./nftables.d/inet-filter.nft"
+
+# 加载 proxy-redirect 设置
+include "./nftables.d/proxy-redirect.nft"
