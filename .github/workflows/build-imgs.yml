@@ -73,7 +73,7 @@ jobs:
           
           # 2. 注入自定义脚本 (确保路径 ../scripts/ 正确)
           cp -rv ../scripts/bin/* rootfs/usr/local/bin/
-          chmod +x rootfs/usr/local/bin/*.* 2>/dev/null || true
+          chmod +x rootfs/usr/local/bin/*
           # 注入welcome脚本
           cp ../scripts/welcome.sh rootfs/etc/profile.d/
           chmod +x rootfs/etc/profile.d/welcome.sh
