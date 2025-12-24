@@ -34,9 +34,9 @@ if [ ! -f /usr/share/dnsmasq/trust-anchors.conf ]; then
 fi
 
 # enable routing service
-rc-update add dnsmasq default
-rc-update add nftables default
 rc-update add sysctl default
+rc-update add nftables default
+rc-update add dnsmasq default
 rc-update add sing-box default
 
 # PPPoE preloading
