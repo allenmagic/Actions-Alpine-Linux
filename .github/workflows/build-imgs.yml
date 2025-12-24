@@ -60,7 +60,7 @@ jobs:
         mkdir rootfs
         sudo -E tar xzfp alpine-minirootfs-3.23.2-aarch64.tar.gz --numeric-owner --same-owner -C rootfs
 
-- name: Apply customizations
+    - name: Apply customizations
       run: |
         sudo -u root bash -c '
           cd project
