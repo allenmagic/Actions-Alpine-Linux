@@ -9,6 +9,4 @@
 # clean ruleset
 flush ruleset;
 
-include "/etc/nftables.d/inet-vars.nft";
-include "/etc/nftables.d/inet-filter.nft";
-include "/etc/nftables.d/proxy-redirect.nft";
+include "/etc/nftables.d/*.nft"
