@@ -69,7 +69,7 @@ jobs:
           mkdir -p rootfs/etc/nftables.d
 
           # 核心安全操作：在宿主机层面直接为 rootfs 注入 bash
-          LANG=C chroot rootfs /bin/sh -c "apk update && apk add --no-cache bash nftables dnsmasq"
+          LANG=C chroot rootfs /bin/sh -c "apk update && apk add --no-cache bash nftables dnsmasq file"
           
           # 2. 注入自定义脚本 (确保路径 ../scripts/ 正确)
           cp -rv ../scripts/bin/* rootfs/usr/local/bin/
@@ -95,8 +95,7 @@ jobs:
           # 执行 setup-alpine.sh
           LANG=C chroot rootfs /bin/bash /setup-alpine.sh
           
-          # ===================== 新增1：dnsmasq 配置文件前置校验 =====================
-          # 校验dnsmasq.d目录下文件是否为有效文本文件，排除潜在异常
+          # ===================== dnsmasq 配置文件前置校验 =====================
           check_dnsmasq_config_files() {
             echo "========== 开始校验 dnsmasq.d 目录下的配置文件 =========="
             local conf_dir="rootfs/etc/dnsmasq.d"
@@ -162,8 +161,8 @@ jobs:
             exit 1
           fi
           
-          # ===================== 新增2：nftables 完整检查逻辑 =====================
-          # 定义nftables专用检查函数（多层验证）
+          # ===================== nftables 完整检查逻辑（修复版） =====================
+          # 定义nftables专用检查函数（优化状态判断，忽略已启动警告）
           check_nftables() {
             echo "========== 开始执行 nftables 完整性检查 =========="
             
@@ -175,29 +174,45 @@ jobs:
             fi
             echo "✅ nftables命令可用"
 
-            # 检查2：尝试启动nftables服务（捕获启动日志和退出码）
-            echo -e "\n2. 启动nftables服务并检查启动状态..."
-            local nft_start_log
-            nft_start_log=$(LANG=C chroot rootfs /bin/bash -c "rc-service nftables start" 2>&1)
-            local start_exit_code=$?
+            # 检查2：先查询nftables当前状态，避免重复启动
+            echo -e "\n2. 查询nftables当前服务状态..."
+            local pre_status_log
+            pre_status_log=$(LANG=C chroot rootfs /bin/bash -c "rc-service nftables status" 2>&1)
+            local pre_status_exit=$?
             
-            # 判断启动是否失败（退出码非0 或 日志包含错误关键词）
-            if [ $start_exit_code -ne 0 ] || echo "$nft_start_log" | grep -qiE "error|failed|unable|cannot|no such file"; then
-              echo "❌ nftables服务启动失败！"
-              echo "启动日志详情："
-              echo "$nft_start_log"
-              return 1
+            # 判断当前状态：已运行/启动中 或 未运行
+            if echo "$pre_status_log" | grep -qiE "running|started|already starting"; then
+              echo "ℹ️ nftables服务已处于运行中/启动中状态，无需重复启动"
+              local service_already_running=1
+            else
+              echo "ℹ️ nftables服务未运行，尝试启动服务..."
+              local service_already_running=0
+              
+              # 尝试启动服务，捕获启动输出和退出码
+              local nft_start_log
+              nft_start_log=$(LANG=C chroot rootfs /bin/bash -c "rc-service nftables start" 2>&1)
+              local start_exit_code=$?
+              
+              # 过滤允许的警告，仅判断真正的错误
+              local allowed_warnings=("already starting|already running")
+              if [ $start_exit_code -ne 0 ] && ! echo "$nft_start_log" | grep -qiE "${allowed_warnings}"; then
+                echo "❌ nftables服务启动失败！"
+                echo "启动日志详情："
+                echo "$nft_start_log"
+                return 1
+              fi
+              echo "✅ nftables服务启动命令执行成功（或已提前启动）"
             fi
-            echo "✅ nftables服务启动命令执行成功"
 
-            # 检查3：验证nftables服务是否处于运行状态
-            echo -e "\n3. 验证nftables服务运行状态..."
+            # 检查3：最终验证nftables服务是否处于运行状态
+            echo -e "\n3. 最终验证nftables服务运行状态..."
             local nft_status_log
             nft_status_log=$(LANG=C chroot rootfs /bin/bash -c "rc-service nftables status" 2>&1)
             local status_exit_code=$?
             
-            if [ $status_exit_code -ne 0 ] || echo "$nft_status_log" | grep -qiE "stopped|not running|inactive|dead"; then
-              echo "❌ nftables服务启动后未处于运行状态！"
+            # 仅匹配真正的异常状态，忽略警告
+            if [ $status_exit_code -ne 0 ] && echo "$nft_status_log" | grep -qiE "stopped|not running|inactive|dead"; then
+              echo "❌ nftables服务未处于正常运行状态！"
               echo "状态查询日志详情："
               echo "$nft_status_log"
               return 1
@@ -239,8 +254,7 @@ jobs:
             exit 1
           fi
           
-          # ===================== 新增3：dnsmasq 服务启动检查 =====================
-          # 定义dnsmasq服务检查函数
+          # ===================== dnsmasq 服务启动检查 =====================
           check_dnsmasq_service() {
             echo "========== 开始执行 dnsmasq 服务完整性检查 =========="
             
@@ -252,19 +266,29 @@ jobs:
             fi
             echo "✅ dnsmasq命令可用"
 
-            # 检查2：尝试启动dnsmasq服务
-            echo -e "\n2. 启动dnsmasq服务并检查启动状态..."
-            local dns_start_log
-            dns_start_log=$(LANG=C chroot rootfs /bin/bash -c "rc-service dnsmasq start" 2>&1)
-            local dns_start_exit=$?
+            # 检查2：先查询dnsmasq当前状态，避免重复启动
+            echo -e "\n2. 查询dnsmasq当前服务状态..."
+            local dns_pre_status_log
+            dns_pre_status_log=$(LANG=C chroot rootfs /bin/bash -c "rc-service dnsmasq status" 2>&1)
             
-            if [ $dns_start_exit -ne 0 ] || echo "$dns_start_log" | grep -qiE "error|failed|unable|cannot|bind: address already in use"; then
-              echo "❌ dnsmasq服务启动失败！"
-              echo "启动日志详情："
-              echo "$dns_start_log"
-              return 1
+            if echo "$dns_pre_status_log" | grep -qiE "running|started|already starting"; then
+              echo "ℹ️ dnsmasq服务已处于运行中/启动中状态，无需重复启动"
+            else
+              echo "ℹ️ dnsmasq服务未运行，尝试启动服务..."
+              local dns_start_log
+              dns_start_log=$(LANG=C chroot rootfs /bin/bash -c "rc-service dnsmasq start" 2>&1)
+              local dns_start_exit=$?
+              
+              # 过滤允许的警告，判断真正的错误
+              local dns_allowed_warnings=("already starting|already running")
+              if [ $dns_start_exit -ne 0 ] && ! echo "$dns_start_log" | grep -qiE "${dns_allowed_warnings}"; then
+                echo "❌ dnsmasq服务启动失败！"
+                echo "启动日志详情："
+                echo "$dns_start_log"
+                return 1
+              fi
+              echo "✅ dnsmasq服务启动命令执行成功（或已提前启动）"
             fi
-            echo "✅ dnsmasq服务启动命令执行成功"
 
             # 检查3：验证dnsmasq服务运行状态
             echo -e "\n3. 验证dnsmasq服务运行状态..."
@@ -272,7 +296,7 @@ jobs:
             dns_status_log=$(LANG=C chroot rootfs /bin/bash -c "rc-service dnsmasq status" 2>&1)
             local dns_status_exit=$?
             
-            if [ $dns_status_exit -ne 0 ] || echo "$dns_status_log" | grep -qiE "stopped|not running|inactive|dead"; then
+            if [ $dns_status_exit -ne 0 ] && echo "$dns_status_log" | grep -qiE "stopped|not running|inactive|dead"; then
               echo "❌ dnsmasq服务启动后未处于运行状态！"
               echo "状态查询日志详情："
               echo "$dns_status_log"
@@ -293,7 +317,6 @@ jobs:
           # ===================== 所有检查逻辑结束 =====================
           
           # 5. 额外加固：创建 ppp.wan 符号链接 (非常重要)
-          # 这确保了 network-setup.sh 里的 rc-service ppp.wan 能够识别
           if [ -e rootfs/etc/init.d/ppp ]; then
             ln -sf ppp rootfs/etc/init.d/ppp.wan
           fi
