@@ -1,0 +1,74 @@
+#!/bin/sh
+# Network Device LED Controller for Alpine Linux
+
+# LED 配置
+WAN_LED="/sys/class/leds/green:wan/brightness"
+LAN_LED="/sys/class/leds/green:lan/brightness"
+WAN_TRIGGER="/sys/class/leds/green:wan/trigger"
+LAN_TRIGGER="/sys/class/leds/green:lan/trigger"
+
+# 网络接口
+WAN_DEV="eth0"
+LAN_DEV="eth1"
+
+# 检查间隔（秒）
+CHECK_INTERVAL=1
+
+# 初始化 LED trigger 为 none（手动控制）
+echo none > "$WAN_TRIGGER" 2>/dev/null
+echo none > "$LAN_TRIGGER" 2>/dev/null
+
+# 获取接口统计信息
+get_stats() {
+    local dev=$1
+    local rx_bytes=$(cat /sys/class/net/$dev/statistics/rx_bytes 2>/dev/null || echo 0)
+    local tx_bytes=$(cat /sys/class/net/$dev/statistics/tx_bytes 2>/dev/null || echo 0)
+    echo "$rx_bytes $tx_bytes"
+}
+
+# 检查链路状态
+check_link() {
+    local dev=$1
+    [ -e "/sys/class/net/$dev/carrier" ] && [ "$(cat /sys/class/net/$dev/carrier 2>/dev/null)" = "1" ]
+}
+
+# 控制 LED
+control_led() {
+    local led=$1
+    local state=$2
+    echo "$state" > "$led" 2>/dev/null
+}
+
+# 主循环
+wan_prev_stats=$(get_stats $WAN_DEV)
+lan_prev_stats=$(get_stats $LAN_DEV)
+
+while true; do
+    # WAN LED 控制
+    if check_link $WAN_DEV; then
+        wan_curr_stats=$(get_stats $WAN_DEV)
+        if [ "$wan_curr_stats" != "$wan_prev_stats" ]; then
+            control_led "$WAN_LED" 255
+            wan_prev_stats=$wan_curr_stats
+        else
+            control_led "$WAN_LED" 50
+        fi
+    else
+        control_led "$WAN_LED" 0
+    fi
+
+    # LAN LED 控制
+    if check_link $LAN_DEV; then
+        lan_curr_stats=$(get_stats $LAN_DEV)
+        if [ "$lan_curr_stats" != "$lan_prev_stats" ]; then
+            control_led "$LAN_LED" 255
+            lan_prev_stats=$lan_curr_stats
+        else
+            control_led "$LAN_LED" 50
+        fi
+    else
+        control_led "$LAN_LED" 0
+    fi
+
+    sleep $CHECK_INTERVAL
+done &  # 注意：后台运行
