@@ -59,38 +59,110 @@ jobs:
         mkdir rootfs
         sudo -E tar xzfp alpine-minirootfs-3.23.2-aarch64.tar.gz --numeric-owner --same-owner -C rootfs
 
-    - name: Apply customizations and check nftables
+    - name: Apply customizations and service checks
       run: |
         sudo -u root bash -c '
           cd project
-          # 1. 基础环境准备（原有逻辑，保持不变）
+          # 1. 基础环境准备
           cp /etc/resolv.conf rootfs/etc/resolv.conf
           mkdir -p rootfs/etc/dnsmasq.d
           mkdir -p rootfs/etc/nftables.d
 
-          # 核心安全操作：注入bash
-          LANG=C chroot rootfs /bin/sh -c "apk update && apk add --no-cache bash nftables"
+          # 核心安全操作：在宿主机层面直接为 rootfs 注入 bash
+          LANG=C chroot rootfs /bin/sh -c "apk update && apk add --no-cache bash nftables dnsmasq"
           
-          # 2. 注入自定义脚本（原有逻辑，保持不变）
+          # 2. 注入自定义脚本 (确保路径 ../scripts/ 正确)
           cp -rv ../scripts/bin/* rootfs/usr/local/bin/
           chmod +x rootfs/usr/local/bin/*
+          # 注入welcome脚本
           cp ../scripts/welcome.sh rootfs/etc/profile.d/
           chmod +x rootfs/etc/profile.d/welcome.sh
         
+          # 2.1 将 repo 的 config 目录下所有内容同步到 rootfs/etc/
           if [ -d "../config" ]; then
             cp -rv ../scripts/../config/* rootfs/etc/
           fi
+          # 将local.d目录下的start文件授权为可执行文件
           chmod +x rootfs/etc/local.d/*.start 2>/dev/null || true
           
-          # 3. 注入安装主脚本（原有逻辑，保持不变）
+          # 3. 注入安装主脚本
           cp ../scripts/setup-alpine.sh rootfs/
           
-          # 4. 挂载chroot环境并执行安装
+          # 4. 进入 chroot 执行安装
           source ../scripts/set_chroot_env.sh
           mount_chroot_env rootfs
+          
+          # 执行 setup-alpine.sh
           LANG=C chroot rootfs /bin/bash /setup-alpine.sh
           
-          # ===================== 核心：nftables 完整检查逻辑 =====================
+          # ===================== 新增1：dnsmasq 配置文件前置校验 =====================
+          # 校验dnsmasq.d目录下文件是否为有效文本文件，排除潜在异常
+          check_dnsmasq_config_files() {
+            echo "========== 开始校验 dnsmasq.d 目录下的配置文件 =========="
+            local conf_dir="rootfs/etc/dnsmasq.d"
+            
+            # 检查目录是否存在
+            if [ ! -d "$conf_dir" ]; then
+              echo "✅ dnsmasq.d 目录不存在，跳过配置文件校验"
+              return 0
+            fi
+            
+            # 遍历所有.conf文件（兼容目录为空的情况）
+            shopt -s nullglob
+            local conf_files=("${conf_dir}"/*.conf)
+            shopt -u nullglob
+            
+            if [ ${#conf_files[@]} -eq 0 ]; then
+              echo "✅ dnsmasq.d 目录下无.conf配置文件，跳过校验"
+              return 0
+            fi
+            
+            # 逐个校验配置文件
+            for file in "${conf_files[@]}"; do
+              echo -e "\n正在校验文件：$file"
+              
+              # 检查文件是否为普通文本文件
+              if ! file "$file" | grep -qi "text"; then
+                echo "❌ 错误：$file 不是普通文本文件，可能导致dnsmasq启动失败"
+                return 1
+              fi
+              echo "✅ 文件类型校验通过（普通文本文件）"
+              
+              # 检查文件权限（确保dnsmasq可读取）
+              if [ ! -r "$file" ]; then
+                echo "❌ 错误：$file 权限不足，dnsmasq无法读取该配置文件"
+                return 1
+              fi
+              echo "✅ 文件权限校验通过（具备可读权限）"
+              
+              # 非空文件执行语法校验
+              if [ -s "$file" ]; then
+                local syntax_check
+                syntax_check=$(LANG=C chroot rootfs /bin/bash -c "dnsmasq --test -C /etc/dnsmasq.d/$(basename "$file")" 2>&1)
+                local syntax_exit=$?
+                if [ $syntax_exit -ne 0 ]; then
+                  echo "❌ 错误：$file 配置语法有误！"
+                  echo "语法校验日志：$syntax_check"
+                  return 1
+                fi
+                echo "✅ 配置语法校验通过（非空文件有效）"
+              else
+                echo "✅ 文件为空，dnsmasq会自动忽略，无需语法校验"
+              fi
+            done
+            
+            echo -e "\n========== dnsmasq.d 目录下所有配置文件校验通过 =========="
+            return 0
+          }
+          
+          # 执行dnsmasq配置文件校验，失败则终止构建
+          if ! check_dnsmasq_config_files; then
+            echo "构建终止：dnsmasq 配置文件校验未通过"
+            umount_chroot_env rootfs
+            exit 1
+          fi
+          
+          # ===================== 新增2：nftables 完整检查逻辑 =====================
           # 定义nftables专用检查函数（多层验证）
           check_nftables() {
             echo "========== 开始执行 nftables 完整性检查 =========="
@@ -163,17 +235,70 @@ jobs:
           # 执行nftables检查，失败则终止构建
           if ! check_nftables; then
             echo "构建终止：nftables 检查未通过（服务无法启动或规则未加载）"
-            # 清理chroot环境后退出
             umount_chroot_env rootfs
             exit 1
           fi
-          # ===================== nftables 检查逻辑结束 =====================
           
-          # 5. 原有后续逻辑（保持不变）
+          # ===================== 新增3：dnsmasq 服务启动检查 =====================
+          # 定义dnsmasq服务检查函数
+          check_dnsmasq_service() {
+            echo "========== 开始执行 dnsmasq 服务完整性检查 =========="
+            
+            # 检查1：验证dnsmasq命令是否可用
+            echo "1. 检查dnsmasq命令是否存在..."
+            if ! LANG=C chroot rootfs /bin/bash -c "command -v dnsmasq >/dev/null 2>&1"; then
+              echo "❌ 错误：dnsmasq未安装，命令不可用"
+              return 1
+            fi
+            echo "✅ dnsmasq命令可用"
+
+            # 检查2：尝试启动dnsmasq服务
+            echo -e "\n2. 启动dnsmasq服务并检查启动状态..."
+            local dns_start_log
+            dns_start_log=$(LANG=C chroot rootfs /bin/bash -c "rc-service dnsmasq start" 2>&1)
+            local dns_start_exit=$?
+            
+            if [ $dns_start_exit -ne 0 ] || echo "$dns_start_log" | grep -qiE "error|failed|unable|cannot|bind: address already in use"; then
+              echo "❌ dnsmasq服务启动失败！"
+              echo "启动日志详情："
+              echo "$dns_start_log"
+              return 1
+            fi
+            echo "✅ dnsmasq服务启动命令执行成功"
+
+            # 检查3：验证dnsmasq服务运行状态
+            echo -e "\n3. 验证dnsmasq服务运行状态..."
+            local dns_status_log
+            dns_status_log=$(LANG=C chroot rootfs /bin/bash -c "rc-service dnsmasq status" 2>&1)
+            local dns_status_exit=$?
+            
+            if [ $dns_status_exit -ne 0 ] || echo "$dns_status_log" | grep -qiE "stopped|not running|inactive|dead"; then
+              echo "❌ dnsmasq服务启动后未处于运行状态！"
+              echo "状态查询日志详情："
+              echo "$dns_status_log"
+              return 1
+            fi
+            echo "✅ dnsmasq服务已处于正常运行状态"
+
+            echo -e "\n========== dnsmasq 所有检查项均通过 =========="
+            return 0
+          }
+          
+          # 执行dnsmasq服务检查，失败则终止构建
+          if ! check_dnsmasq_service; then
+            echo "构建终止：dnsmasq 服务检查未通过（服务无法启动）"
+            umount_chroot_env rootfs
+            exit 1
+          fi
+          # ===================== 所有检查逻辑结束 =====================
+          
+          # 5. 额外加固：创建 ppp.wan 符号链接 (非常重要)
+          # 这确保了 network-setup.sh 里的 rc-service ppp.wan 能够识别
           if [ -e rootfs/etc/init.d/ppp ]; then
             ln -sf ppp rootfs/etc/init.d/ppp.wan
           fi
 
+          # 检测自定义效果
           cat rootfs/etc/nftables.d/00-vars.nft
           
           # 6. 环境清理
