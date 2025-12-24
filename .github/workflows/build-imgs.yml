@@ -95,6 +95,54 @@ jobs:
           # 执行 setup-alpine.sh
           LANG=C chroot rootfs /bin/bash /setup-alpine.sh
           
+          # ===================== 新增：dnsmasq 和 nftables 检查逻辑 =====================
+          # 定义检查函数，接收服务名作为参数
+          check_service_status() {
+            local service_name=$1
+            echo "开始检查 ${service_name} 服务状态..."
+            
+            # 1. 尝试启动服务，捕获启动输出和退出码
+            local start_output
+            start_output=$(LANG=C chroot rootfs /bin/bash -c "rc-service ${service_name} start" 2>&1)
+            local start_exit_code=$?
+            
+            # 2. 检查启动是否失败
+            if [ ${start_exit_code} -ne 0 ] || echo "${start_output}" | grep -qiE "error|failed|unable|cannot"; then
+              echo "❌ ${service_name} 服务启动失败！"
+              echo "启动输出详情："
+              echo "${start_output}"
+              return 1
+            fi
+            
+            # 3. 验证服务是否处于运行状态
+            local status_output
+            status_output=$(LANG=C chroot rootfs /bin/bash -c "rc-service ${service_name} status" 2>&1)
+            local status_exit_code=$?
+            
+            if [ ${status_exit_code} -ne 0 ] || echo "${status_output}" | grep -qiE "stopped|not running|inactive"; then
+              echo "❌ ${service_name} 服务启动后未处于运行状态！"
+              echo "状态查询输出详情："
+              echo "${status_output}"
+              return 1
+            fi
+            
+            echo "✅ ${service_name} 服务启动并运行正常！"
+            return 0
+          }
+          
+          # 检查 dnsmasq 服务，若失败则退出
+          if ! check_service_status "dnsmasq"; then
+            echo "构建终止：dnsmasq 服务无法正常启动"
+            exit 1
+          fi
+          
+          # 检查 nftables 服务，若失败则退出
+          if ! check_service_status "nftables"; then
+            echo "构建终止：nftables 服务无法正常启动"
+            exit 1
+          fi
+          # ===================== 检查逻辑结束 =====================
+          
           # 5. 额外加固：创建 ppp.wan 符号链接 (非常重要)
           # 这确保了 network-setup.sh 里的 rc-service ppp.wan 能够识别
           if [ -e rootfs/etc/init.d/ppp ]; then
