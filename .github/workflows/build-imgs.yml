@@ -59,6 +59,7 @@ jobs:
         wget https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/aarch64/alpine-minirootfs-3.23.2-aarch64.tar.gz
         mkdir rootfs
         sudo -E tar xzfp alpine-minirootfs-3.23.2-aarch64.tar.gz --numeric-owner --same-owner -C rootfs
+
     - name: Apply customizations
       run: |
         sudo -u root bash -c '
@@ -288,6 +289,7 @@ jobs:
           rm -f rootfs/setup-alpine.sh
           rm -f rootfs/etc/resolv.conf
         '
+
 
     - name: Create rootfs package
       id: create_rootfs_package
