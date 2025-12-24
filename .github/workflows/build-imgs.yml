@@ -96,7 +96,7 @@ jobs:
           # 执行 setup-alpine.sh
           LANG=C chroot rootfs /bin/bash /setup-alpine.sh
 
-          # ===================== 新增：完整检查逻辑（开始）=====================
+          # ===================== 新增：完整检查逻辑（开始，无语法错误）=====================
           # 通用配置校验函数（使用rootfs内工具，静态语法校验）
           check_config_with_rootfs_tool() {
             local service_name=$1
@@ -265,14 +265,14 @@ jobs:
             return 0
           }
           
-          # 执行dnsmasq服务检查
+          # 执行dnsmasq服务检查（修正：闭合if语句用fi，无多余}）
           if ! check_dnsmasq_service; then
             echo "构建终止：dnsmasq 服务检查未通过"
             umount_chroot_env rootfs
             rm -f rootfs/setup-alpine.sh
             rm -f rootfs/etc/resolv.conf
             exit 1
-          }
+          fi
           # ===================== 新增：完整检查逻辑（结束）=====================
 
           # 5. 额外加固：创建 ppp.wan 符号链接 (非常重要)
