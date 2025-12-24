@@ -1,16 +1,14 @@
-# 该配置文件为主配置文件.
-# 更多案例可参考/usr/share/nftables.
-# 更多nftables功能和用法参考https://wiki.nftables.org
-# 请使用 `nft -f <file>` 加载nft配置文件
+# Here is an example of different families, hooks and priorities in the
+# nftables framework, all mixed together.
+#
+# more examples are located in files/examples in nftables source.
+# For up-to-date information please visit https://wiki.nftables.org
+#
+# This script is meant to be loaded with `nft -f <file>`
 
-# 清除历史状态
-flush ruleset
+# clean ruleset
+flush ruleset;
 
-# 加载预设变量
-include "./nftables.d/inet-vars.nft"
-
-# 加载filter设置
-include "./nftables.d/inet-filter.nft"
-
-# 加载 proxy-redirect 设置
-include "./nftables.d/proxy-redirect.nft"
+include "./nftables.d/inet-vars.nft";
+include "./nftables.d/inet-filter.nft";
+include "./nftables.d/proxy-redirect.nft";

@@ -23,8 +23,8 @@ sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd
 # enable routing needed packages
 apk add --no-cache \
     ppp ppp-pppoe ppp-openrc \
-    dnsmasq-dnssec-nftset \
-    nftables newt sing-box \
+    dnsmasq-dnssec-nftset jq \
+    nftables newt sing-box less \
     wireguard-tools tailscale \
     ca-certificates curl wget python3
 

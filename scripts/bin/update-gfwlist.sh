@@ -3,7 +3,7 @@
 # 配置变量
 GFW_URL="https://raw.githubusercontent.com/gfwlist/gfwlist/master/gfwlist.txt"
 CONF_DIR="/etc/dnsmasq.d"
-CONF_FILE="$CONF_DIR/90-gfwlist.conf"
+CONF_FILE="$CONF_DIR/90-gfwlist-auto.conf"
 NFT_SET_NAME="proxy_set"
 
 # 1. 确认配置目录是否存在，不存在则创建

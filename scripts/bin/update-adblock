@@ -2,7 +2,7 @@
 
 # --- 配置区 ---
 AD_DIR="/etc/dnsmasq.d"
-AD_CONF="${AD_DIR}/90-adblock.conf"
+AD_CONF="${AD_DIR}/90-adblock-auto.conf"
 AD_SOURCE="https://anti-ad.net/dnsmasq.conf"
 
 GREEN='\033[0;32m'
