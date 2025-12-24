@@ -15,7 +15,7 @@ fi
 
 # 2. 强制绑定 LAN IP
 # 即使 interfaces 文件写错了，这一步也会在硬件层把 192.168.1.1 挂载到 eth1
-ip addr add 192.168.1.1/24 dev eth1 2>/dev/null
+ip addr add 192.168.8.1/24 dev eth1 2>/dev/null
 ip link set eth1 up
 
 # 3. 启动“裸奔版” DHCP
