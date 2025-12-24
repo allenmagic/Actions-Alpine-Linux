@@ -60,7 +60,7 @@ jobs:
         mkdir rootfs
         sudo -E tar xzfp alpine-minirootfs-3.23.2-aarch64.tar.gz --numeric-owner --same-owner -C rootfs
 
-    - name: Apply customizations
+- name: Apply customizations
       run: |
         sudo -u root bash -c '
           cd project
@@ -93,197 +93,76 @@ jobs:
           source ../scripts/set_chroot_env.sh
           mount_chroot_env rootfs
           
-          # 执行 setup-alpine.sh
+          # 执行 setup-alpine.sh (这里包含了 rc-update add 等操作)
           LANG=C chroot rootfs /bin/bash /setup-alpine.sh
 
-          # ===================== 新增：完整检查逻辑（开始，无语法错误）=====================
-          # 通用配置校验函数（使用rootfs内工具，静态语法校验）
-          check_config_with_rootfs_tool() {
-            local service_name=$1
-            local check_cmd=$2
-            local config_files=("${@:3}")
-            
-            echo -e "\n========== 开始校验 ${service_name} 配置语法（使用rootfs内工具）=========="
-            local error_flag=0
-            
-            for config in "${config_files[@]}"; do
-              # 检查配置文件是否存在（在rootfs内判断）
-              if ! chroot rootfs /bin/bash -c "test -f \"${config}\""; then
-                echo "ℹ️ 配置文件 ${config} 不存在，跳过校验"
-                continue
-              fi
-              
-              # 执行语法校验，捕获完整日志
-              echo "正在校验配置文件：${config}"
-              local check_log
-              check_log=$(chroot rootfs /bin/bash -c "${check_cmd} \"${config}\"" 2>&1)
-              local exit_code=$?
-              
-              # 判断校验结果
-              if [ ${exit_code} -ne 0 ]; then
-                echo -e "❌ ${service_name} 配置文件 ${config} 语法错误！"
-                echo -e "报错详情：\n${check_log}"
-                error_flag=1
-                break
-              fi
-              echo "✅ ${config} 语法校验通过"
-            done
-            
-            if [ ${error_flag} -eq 1 ]; then
-              echo -e "\n========== ${service_name} 配置校验失败，终止构建 =========="
-              # 校验失败时先清理环境再退出
-              umount_chroot_env rootfs
-              rm -f rootfs/setup-alpine.sh
-              rm -f rootfs/etc/resolv.conf
-              exit 1
-            fi
-            echo -e "\n========== ${service_name} 所有配置语法校验通过 =========="
-            return 0
-          }
-          
-          # 1. DNSMasq 配置语法校验（使用rootfs内dnsmasq工具）
-          dnsmasq_configs=(
-            "/etc/dnsmasq.conf"
-            "/etc/dnsmasq.d/*.conf"
-          )
-          if ! check_config_with_rootfs_tool "dnsmasq" "dnsmasq --test -C" "${dnsmasq_configs[@]}"; then
-            exit 1
-          fi
-          
-          # 2. NFTables 配置语法校验（使用rootfs内nft工具）
-          nft_configs=(
-            "/etc/nftables.d/00-vars.nft"
-            "/etc/nftables.d/*.nft"
-            "/etc/nftables.conf"
-          )
-          if ! check_config_with_rootfs_tool "nftables" "nft -c -f" "${nft_configs[@]}"; then
-            exit 1
-          fi
-          
-          # NFTables 服务状态检查函数
-          check_nftables_service() {
-            echo -e "\n========== 开始执行 nftables 服务状态检查 =========="
-            
-            # 检查nftables命令和服务脚本是否存在
-            if ! chroot rootfs /bin/bash -c "command -v nft && test -f /etc/init.d/nftables"; then
-              echo "❌ rootfs内nftables未安装或缺少服务脚本"
-              return 1
-            fi
-            echo "✅ rootfs内nftables命令和服务脚本均存在"
+          # ===================== 优化版：配置语法与环境静态校验（替代原有启动检查） =====================
+          echo -e "\n========== 开始执行环境静态校验 =========="
 
-            # 查询当前服务状态，避免重复启动
-            local pre_status_log
-            pre_status_log=$(chroot rootfs /bin/bash -c "rc-service nftables status" 2>&1)
-            
-            if echo "$pre_status_log" | grep -qiE "running|started|already starting"; then
-              echo "ℹ️ nftables服务已处于运行中/启动中状态，无需重复启动"
-            else
-              echo "ℹ️ nftables服务未运行，尝试启动服务..."
-              local nft_start_log
-              nft_start_log=$(chroot rootfs /bin/bash -c "rc-service nftables start" 2>&1)
-              local start_exit_code=$?
-              
-              # 过滤允许的警告（内核不支持等环境问题，非脚本错误）
-              local allowed_warnings=("already starting|already running|Netlink socket|Protocol not supported")
-              if [ $start_exit_code -ne 0 ] && ! echo "$nft_start_log" | grep -qiE "${allowed_warnings}"; then
-                echo "❌ nftables服务启动脚本执行失败！"
-                echo "启动日志详情：\n${nft_start_log}"
-                return 1
-              fi
-              echo "✅ nftables服务启动脚本执行成功（或忽略内核不支持警告）"
-            fi
-
-            # 最终验证服务脚本状态（忽略内核相关异常）
-            local nft_status_log
-            nft_status_log=$(chroot rootfs /bin/bash -c "rc-service nftables status" 2>&1)
-            
-            if echo "$nft_status_log" | grep -qiE "stopped|not running|inactive|dead" && \
-               ! echo "$nft_status_log" | grep -qiE "Netlink socket|Protocol not supported"; then
-              echo "❌ nftables服务未处于正常运行状态（非内核原因）！"
-              echo "状态查询日志详情：\n${nft_status_log}"
-              return 1
-            fi
-            echo "✅ nftables服务脚本状态正常（忽略内核不支持相关异常）"
-            echo -e "\n========== nftables 服务状态检查通过 =========="
-            return 0
-          }
-          
-          # 执行nftables服务检查
-          if ! check_nftables_service; then
-            echo "构建终止：nftables 服务检查未通过"
+          # 定义清理函数（校验失败时调用）
+          cleanup_on_fail() {
             umount_chroot_env rootfs
             rm -f rootfs/setup-alpine.sh
             rm -f rootfs/etc/resolv.conf
             exit 1
-          fi
-          
-          # DNSMasq 服务状态检查函数
-          check_dnsmasq_service() {
-            echo -e "\n========== 开始执行 dnsmasq 服务状态检查 =========="
-            
-            # 检查dnsmasq命令和服务脚本是否存在
-            if ! chroot rootfs /bin/bash -c "command -v dnsmasq && test -f /etc/init.d/dnsmasq"; then
-              echo "❌ rootfs内dnsmasq未安装或缺少服务脚本"
-              return 1
-            fi
-            echo "✅ rootfs内dnsmasq命令和服务脚本均存在"
-
-            # 查询当前服务状态，避免重复启动
-            local dns_pre_status_log
-            dns_pre_status_log=$(chroot rootfs /bin/bash -c "rc-service dnsmasq status" 2>&1)
-            
-            if echo "$dns_pre_status_log" | grep -qiE "running|started|already starting"; then
-              echo "ℹ️ dnsmasq服务已处于运行中/启动中状态，无需重复启动"
-            else
-              echo "ℹ️ dnsmasq服务未运行，尝试启动服务..."
-              local dns_start_log
-              dns_start_log=$(chroot rootfs /bin/bash -c "rc-service dnsmasq start" 2>&1)
-              local dns_start_exit=$?
-              
-              # 过滤允许的警告
-              local dns_allowed_warnings=("already starting|already running")
-              if [ $dns_start_exit -ne 0 ] && ! echo "$dns_start_log" | grep -qiE "${dns_allowed_warnings}"; then
-                echo "❌ dnsmasq服务启动失败！"
-                echo "启动日志详情：\n${dns_start_log}"
-                return 1
-              fi
-              echo "✅ dnsmasq服务启动命令执行成功（或已提前启动）"
-            fi
-
-            # 最终验证服务运行状态
-            local dns_status_log
-            dns_status_log=$(chroot rootfs /bin/bash -c "rc-service dnsmasq status" 2>&1)
-            local dns_status_exit=$?
-            
-            if [ $dns_status_exit -ne 0 ] && echo "$dns_status_log" | grep -qiE "stopped|not running|inactive|dead"; then
-              echo "❌ dnsmasq服务启动后未处于运行状态！"
-              echo "状态查询日志详情：\n${dns_status_log}"
-              return 1
-            fi
-            echo "✅ dnsmasq服务已处于正常运行状态"
-            echo -e "\n========== dnsmasq 服务状态检查通过 =========="
-            return 0
           }
-          
-          # 执行dnsmasq服务检查（修正：闭合if语句用fi，无多余}）
-          if ! check_dnsmasq_service; then
-            echo "构建终止：dnsmasq 服务检查未通过"
-            umount_chroot_env rootfs
-            rm -f rootfs/setup-alpine.sh
-            rm -f rootfs/etc/resolv.conf
-            exit 1
-          fi
-          # ===================== 新增：完整检查逻辑（结束）=====================
 
-          # 5. 额外加固：创建 ppp.wan 符号链接 (非常重要)
-          # 这确保了 network-setup.sh 里的 rc-service ppp.wan 能够识别
+          # 1. DNSMasq 语法校验
+          echo "正在验证 dnsmasq 配置..."
+          if ! chroot rootfs /bin/bash -c "dnsmasq --test"; then
+            echo "❌ dnsmasq 配置文件语法错误！"
+            cleanup_on_fail
+          fi
+          echo "✅ dnsmasq 语法校验通过"
+
+          # 2. NFTables 语法校验
+          # 即使 GitHub 内核不支持，nft -c 也能检查主文件及 include 的子文件是否存在且语法正确
+          echo "正在验证 nftables 配置..."
+          if ! chroot rootfs /bin/bash -c "nft -c -f /etc/nftables.conf"; then
+            echo "❌ nftables 配置文件语法错误或引用文件缺失！"
+            cleanup_on_fail
+          fi
+          echo "✅ nftables 语法校验通过"
+
+          # 3. 开机自启软链接校验 (核心检查)
+          # 验证 setup-alpine.sh 里的 rc-update 是否真正创建了启动链接
+          echo "正在检查服务自启状态..."
+          check_services=("sysctl" "nftables" "dnsmasq" "sing-box")
+          for svc in "${check_services[@]}"; do
+            if [ -L "rootfs/etc/runlevels/default/${svc}" ]; then
+              echo "✅ 服务 ${svc} 已加入自启列表"
+            else
+              echo "❌ 错误: 服务 ${svc} 未发现自启链接，请检查 setup-alpine.sh"
+              cleanup_on_fail
+            fi
+          done
+
+          # 4. 关键二进制文件存在性与权限检查
+          echo "正在检查关键执行文件..."
+          declare -A critical_files=(
+            ["/usr/sbin/dnsmasq"]="dnsmasq"
+            ["/usr/sbin/nft"]="nftables"
+            ["/usr/local/bin/sing-box"]="sing-box"
+          )
+          for file in "${!critical_files[@]}"; do
+            if [ ! -f "rootfs${file}" ]; then
+              echo "❌ 缺失二进制文件: ${file} (所属服务: ${critical_files[$file]})"
+              cleanup_on_fail
+            fi
+            if [ ! -x "rootfs${file}" ]; then
+              echo "⚠️ 修复执行权限: ${file}"
+              chmod +x "rootfs${file}"
+            fi
+          done
+
+          echo "✅ 所有静态校验通过！"
+          # ===================== 检查逻辑结束 =====================
+
+          # 5. 额外加固：创建 ppp.wan 符号链接
           if [ -e rootfs/etc/init.d/ppp ]; then
             ln -sf ppp rootfs/etc/init.d/ppp.wan
           fi
 
-          # 检测自定义效果
-          cat rootfs/etc/nftables.d/00-vars.nft
-          
           # 6. 环境清理
           umount_chroot_env rootfs
           rm -f rootfs/setup-alpine.sh
