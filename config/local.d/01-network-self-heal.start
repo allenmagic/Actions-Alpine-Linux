@@ -1,57 +1,69 @@
 #!/bin/sh
 
-# --- 配置区 ---
-WAN_IF="eth0"          # 连接光猫/上级路由的网口
-LAN_IF="eth1"          # 连接电脑/交换机的网口
-LAN_IP="192.168.8.1"   # LAN 口网关地址
-LAN_NET="192.168.8.0"  # LAN 子网
-CHECK_HOST="1.1.1.1"   # 外网测试 IP
+# --- 核心配置 ---
+WAN_IF="eth0"
+LAN_IF="eth1"
+LAN_IP="192.168.8.1"
 
-echo "开始执行路由器自愈检查..."
+echo "Checking system health..."
 
-# 1. 强制开启内核转发 (核心功能)
-echo 1 > /proc/sys/net/ipv4/ip_forward
+# 1. 检查 IP 转发开关 (内核级保底，不影响防火墙规则)
+if [ "$(cat /proc/sys/net/ipv4/ip_forward)" = "0" ]; then
+    echo "补救: 开启内核 IP 转发"
+    echo 1 > /proc/sys/net/ipv4/ip_forward
+fi
 
-# 2. WAN 口自愈 (DHCP 客户端逻辑)
-if ! ip addr show "$WAN_IF" | grep -q "inet "; then
-    echo "⚠️ WAN ($WAN_IF) 无 IP，尝试 udhcpc..."
-    # 强制释放可能存在的死锁并重新获取
-    killall udhcpc 2>/dev/null
+# 2. WAN 口状态探测
+# 如果检测到已经获取了 IP，说明 udhcpc 或静态配置已生效，直接跳过
+if ip addr show "$WAN_IF" | grep -q "inet "; then
+    echo "✅ WAN 接口已就绪"
+else
+    echo "❌ WAN 接口未启动，尝试紧急获取 IP..."
     udhcpc -i "$WAN_IF" -n -q -t 5
 fi
 
-# 3. LAN 口自愈 (DHCP 服务端逻辑)
-# 首先确保 LAN 物理接口有静态 IP
-if ! ip addr show "$LAN_IF" | grep -q "$LAN_IP"; then
-    echo "⚠️ LAN ($LAN_IF) 未配置 IP，正在强制设为 $LAN_IP..."
+# 3. LAN 口状态探测
+# 如果 LAN 口已有 IP 地址，说明 interfaces 配置成功，跳过
+if ip addr show "$LAN_IF" | grep -q "inet "; then
+    echo "✅ LAN 接口 IP 已配置"
+else
+    echo "❌ LAN 接口无 IP，强制绑定紧急地址 $LAN_IP"
     ip addr add "$LAN_IP/24" dev "$LAN_IF" 2>/dev/null
     ip link set "$LAN_IF" up
 fi
 
-# 4. 检查 dnsmasq 状态 (为 LAN 提供 DHCP 的关键)
-if ! rc-service dnsmasq status >/dev/null 2>&1; then
-    echo "⚠️ dnsmasq 未运行，尝试重启..."
+# 4. DNSMasq (DHCP) 状态探测
+# 首先判断服务是否已经在正常运行
+if rc-service dnsmasq status >/dev/null 2>&1; then
+    echo "✅ dnsmasq 服务运行正常"
+else
+    echo "❌ dnsmasq 未启动，尝试重新启动正式服务..."
     rc-service dnsmasq restart
     
-    # 如果重启依然失败，可能是配置文件坏了，尝试用最小化配置启动
+    # 如果重启后还是没起来（说明配置文件有硬伤），执行应急 DHCP
     sleep 2
     if ! pgrep dnsmasq >/dev/null; then
-        echo "🚨 dnsmasq 依然失败，尝试紧急最小化模式启动..."
-        # 紧急模式：仅在 LAN 口开启 DHCP，分配 100-200 租约
+        echo "🚨 配置文件错误！启动应急临时 DHCP 模式..."
         dnsmasq --interface="$LAN_IF" \
                 --dhcp-range=192.168.1.100,192.168.1.200,12h \
-                --bind-interfaces \
                 --conf-file=/dev/null
     fi
 fi
 
-# 5. SSH 守卫
-rc-service sshd status >/dev/null 2>&1 || rc-service sshd start
-
-# 6. DNS 与外网兜底
-if ! ping -c 1 -W 2 "$CHECK_HOST" >/dev/null 2>&1; then
-    echo "nameserver 8.8.8.8" > /etc/resolv.conf
+# 5. NFTables (防火墙) 状态探测
+# 如果服务没起来，尝试启动它。
+# 注意：我们不轻易尝试“覆盖”防火墙规则，因为这涉及安全。
+# 仅确保服务尝试加载你的正式配置。
+if rc-service nftables status >/dev/null 2>&1; then
+    echo "✅ nftables 服务运行正常"
+else
+    echo "❌ nftables 未运行，尝试加载正式规则..."
+    rc-service nftables start
 fi
 
-echo "路由器自愈检查完成。"
-exit 0
+# 6. SSHD 存活检查 (确保你能进去修)
+if ! rc-service sshd status >/dev/null 2>&1; then
+    rc-service sshd start
+fi
+
+echo "Health check finished."
