@@ -1,69 +1,29 @@
 #!/bin/sh
 
-# --- 核心配置 ---
-WAN_IF="eth0"
-LAN_IF="eth1"
-LAN_IP="192.168.8.1"
+# --- 暴力保底逻辑 ---
 
-echo "Checking system health..."
-
-# 1. 检查 IP 转发开关 (内核级保底，不影响防火墙规则)
-if [ "$(cat /proc/sys/net/ipv4/ip_forward)" = "0" ]; then
-    echo "补救: 开启内核 IP 转发"
-    echo 1 > /proc/sys/net/ipv4/ip_forward
+# 1. 发现 nftables 异常时直接“拆除”防火墙
+# 如果 nftables 没起来，或者起来了但你还是 ping 不通网关，
+# 执行以下命令清空规则，防止被防火墙把自己关在门外
+if ! rc-service nftables status >/dev/null 2>&1; then
+    echo "⚠️ nftables 异常，正在强行放行所有流量以维持 SSH 访问..."
+    nft flush ruleset 2>/dev/null
+    # 建立最基础的接受规则，确保能连上
+    nft add table inet filter
+    nft add chain inet filter input { type filter hook input priority 0 \; policy accept \; }
 fi
 
-# 2. WAN 口状态探测
-# 如果检测到已经获取了 IP，说明 udhcpc 或静态配置已生效，直接跳过
-if ip addr show "$WAN_IF" | grep -q "inet "; then
-    echo "✅ WAN 接口已就绪"
-else
-    echo "❌ WAN 接口未启动，尝试紧急获取 IP..."
-    udhcpc -i "$WAN_IF" -n -q -t 5
+# 2. 强制绑定 LAN IP
+# 即使 interfaces 文件写错了，这一步也会在硬件层把 192.168.1.1 挂载到 eth1
+ip addr add 192.168.1.1/24 dev eth1 2>/dev/null
+ip link set eth1 up
+
+# 3. 启动“裸奔版” DHCP
+# 如果配置文件里的路径不对导致正常 dnsmasq 挂了，
+# 我们直接开一个完全不读配置文件的临时服务，只为了让你的电脑拿到 IP
+if ! pgrep dnsmasq >/dev/null; then
+    dnsmasq --interface=eth1 --dhcp-range=192.168.1.10,192.168.1.50,12h --conf-file=/dev/null
 fi
 
-# 3. LAN 口状态探测
-# 如果 LAN 口已有 IP 地址，说明 interfaces 配置成功，跳过
-if ip addr show "$LAN_IF" | grep -q "inet "; then
-    echo "✅ LAN 接口 IP 已配置"
-else
-    echo "❌ LAN 接口无 IP，强制绑定紧急地址 $LAN_IP"
-    ip addr add "$LAN_IP/24" dev "$LAN_IF" 2>/dev/null
-    ip link set "$LAN_IF" up
-fi
-
-# 4. DNSMasq (DHCP) 状态探测
-# 首先判断服务是否已经在正常运行
-if rc-service dnsmasq status >/dev/null 2>&1; then
-    echo "✅ dnsmasq 服务运行正常"
-else
-    echo "❌ dnsmasq 未启动，尝试重新启动正式服务..."
-    rc-service dnsmasq restart
-    
-    # 如果重启后还是没起来（说明配置文件有硬伤），执行应急 DHCP
-    sleep 2
-    if ! pgrep dnsmasq >/dev/null; then
-        echo "🚨 配置文件错误！启动应急临时 DHCP 模式..."
-        dnsmasq --interface="$LAN_IF" \
-                --dhcp-range=192.168.1.100,192.168.1.200,12h \
-                --conf-file=/dev/null
-    fi
-fi
-
-# 5. NFTables (防火墙) 状态探测
-# 如果服务没起来，尝试启动它。
-# 注意：我们不轻易尝试“覆盖”防火墙规则，因为这涉及安全。
-# 仅确保服务尝试加载你的正式配置。
-if rc-service nftables status >/dev/null 2>&1; then
-    echo "✅ nftables 服务运行正常"
-else
-    echo "❌ nftables 未运行，尝试加载正式规则..."
-    rc-service nftables start
-fi
-
-# 6. SSHD 存活检查 (确保你能进去修)
-if ! rc-service sshd status >/dev/null 2>&1; then
-    rc-service sshd start
-fi
-
-echo "Health check finished."
+# 4. 强制启动 SSH
+rc-service sshd start
