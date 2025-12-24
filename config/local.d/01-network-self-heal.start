@@ -22,7 +22,7 @@ ip link set eth1 up
 # 如果配置文件里的路径不对导致正常 dnsmasq 挂了，
 # 我们直接开一个完全不读配置文件的临时服务，只为了让你的电脑拿到 IP
 if ! pgrep dnsmasq >/dev/null; then
-    dnsmasq --interface=eth1 --dhcp-range=192.168.1.10,192.168.1.50,12h --conf-file=/dev/null
+    dnsmasq --interface=eth1 --dhcp-range=192.168.8.10,192.168.8.50,12h --conf-file=/dev/null
 fi
 
 # 4. 强制启动 SSH
