@@ -1,0 +1,30 @@
+#!/usr/sbin/nft -f
+# /etc/nftables.d/02-nat.nft
+# NAT 表 - 实现局域网共享上网
+
+table inet nat {
+    # ============================================================
+    # PREROUTING 链 (DNAT - 端口转发)
+    # ============================================================
+    chain prerouting {
+        type nat hook prerouting priority dstnat; policy accept;
+
+        # 示例：端口转发规则（根据需要取消注释）
+        # iifname $WAN tcp dport 8080 dnat to 192.168.8.100:80;
+        # iifname $WAN tcp dport 2222 dnat to 192.168.8.101:22;
+    }
+
+    # ============================================================
+    # POSTROUTING 链 (SNAT - 共享上网)
+    # ============================================================
+    chain postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+
+        # ⭐⭐⭐ 关键规则：LAN 访问外网时进行 NAT ⭐⭐⭐
+        oifname $WAN masquerade;
+
+        # 如果有 VPN，也需要 NAT（根据需要取消注释）
+        # oifname $WG masquerade;
+        # oifname $TS masquerade;
+    }
+}

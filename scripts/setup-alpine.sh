@@ -5,15 +5,16 @@ export LANGUAGE=en_US:en
 export LC_ALL="C"
 
 apk update
-apk add --no-cache openrc bash alpine-base util-linux irqbalance
+apk add --no-cache openrc alpine-base util-linux irqbalance
 
 # --- 中文支持包 ---
-apk add --no-cache musl-locales musl-locales-lang tzdata
+apk add --no-cache musl-locales musl-locales-lang tzdata nano
 
 rc-update add bootmisc boot
 rc-update add syslog default
 rc-update add crond default
 rc-update add irqbalance default
+rc-update add local default
 
 # enable ssh server
 apk add --no-cache openssh

@@ -1,0 +1,13 @@
+#!/bin/sh
+# /etc/local.d/network-monitor.start
+# 网络监控服务启动脚本
+# 在 OpenRC 完成所有服务启动后执行
+
+# 后台执行，避免阻塞 OpenRC 启动流程
+(
+    # 执行开机自检（会等待 60 秒）
+    /usr/local/bin/network-monitor.sh boot
+
+    # 启动守护进程（每 5 分钟检查一次）
+    /usr/local/bin/network-monitor.sh daemon-start
+) &
